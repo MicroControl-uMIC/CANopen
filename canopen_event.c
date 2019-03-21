@@ -105,7 +105,7 @@ void ComMgrEventBus(uint8_t ubNetV, CpState_ts * ptsBusStateV)
    switch (ubNetV)
    {
       case eCOM_NET_1 :
-         if(ptsBusStateV->ubCanErrState == CP_STATE_BUS_OFF)
+         if(ptsBusStateV->ubCanErrState == eCP_STATE_BUS_OFF)
          {
             //---------------------------------------------
             // handle bus-off condition
