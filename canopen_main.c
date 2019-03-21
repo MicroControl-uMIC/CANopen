@@ -270,7 +270,7 @@ int main(int argc, char *argv[])
    printf("###############################################################################\n");
    printf("# uMIC.200 CANopen Master Example                                             #\n");
    printf("###############################################################################\n");
-   printf("\n");
+   printf("%s\n", ComMgrGetVersionString(eCOM_VERSION_STACK));
    printf("Use CTRL-C to quit this demo.\n");
    printf("\n");
 
@@ -280,6 +280,7 @@ int main(int argc, char *argv[])
    //
    init_signal_handler();
 
+   ComTmrSetPeriod(10000);
 
    //----------------------------------------------------------------
    // Initialise the CANopen master stack
