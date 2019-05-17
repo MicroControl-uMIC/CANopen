@@ -58,9 +58,12 @@
 ** Functions                                                                  **
 **                                                                            **
 \*----------------------------------------------------------------------------*/
-extern ComStatus_tv ComDemoWriteModuleConfiguration(uint8_t ubNetV, uint8_t ubNodeIdV);
-extern ComStatus_tv ComDemoSetupPdoConfiguration(uint8_t ubNetV, uint8_t ubNodeIdV);
 
+extern void         ComDemoAddDevice(uint8_t ubNetV, uint8_t ubNodeIdV);
+extern void         ComDemoShowDeviceInfo(uint8_t ubNetV, uint8_t ubNodeIdV);
+extern ComStatus_tv ComDemoSetupEmcyConfiguration(uint8_t ubNetV, uint8_t ubNodeIdV);
+extern ComStatus_tv ComDemoSetupPdoConfiguration(uint8_t ubNetV, uint8_t ubNodeIdV);
+extern ComStatus_tv ComDemoWriteModuleConfiguration(uint8_t ubNetV, uint8_t ubNodeIdV);
 
 //----------------------------------------------------------------------------//
 // ComEmcyConsEventReceive()                                                  //
@@ -72,12 +75,12 @@ void ComEmcyConsEventReceive(uint8_t ubNetV, uint8_t ubNodeIdV)
    uint16_t uwEmcyCodeT;
 
    ComEmcyConsGetData(ubNetV,ubNodeIdV,&aubDataT[0]);
-   uwEmcyCodeT = aubDataT[2];
+   uwEmcyCodeT = aubDataT[1];
    uwEmcyCodeT = uwEmcyCodeT << 8;
-   uwEmcyCodeT = uwEmcyCodeT | aubDataT[1];
+   uwEmcyCodeT = uwEmcyCodeT | aubDataT[0];
 
    printf("can%d: NID %03d - EMCY code %04X, error register value %d\n",
-           ubNetV, ubNodeIdV, uwEmcyCodeT, aubDataT[0]);
+           ubNetV, ubNodeIdV, uwEmcyCodeT, aubDataT[2]);
 }
 
 
@@ -132,7 +135,7 @@ ComStatus_tv ComMgrMasterInit(uint8_t __attribute__((unused)) ubNetV)
    return(eCOM_ERR_OK);
 }
 
-ComStatus_tv   ComMgrUserInit(uint8_t ubNetV)
+ComStatus_tv   ComMgrUserInit(uint8_t __attribute__((unused)) ubNetV)
 {
     return(eCOM_ERR_OK);
 }
@@ -229,7 +232,7 @@ void ComNmtEventStateChange(uint8_t ubNetV, uint8_t ubNodeIdV,
         printf("can%d: NID %03d - received boot-up message\n",
               ubNetV, ubNodeIdV);
 
-        ComDemoWriteModuleConfiguration(ubNetV, ubNodeIdV);
+        ComDemoAddDevice(ubNetV, ubNodeIdV);
 
         break;
 
@@ -259,8 +262,6 @@ void ComPdoEventReceive(uint8_t ubNetV, uint16_t uwPdoNumV)
    uint8_t  aubPdoDataT[8];
 
    ComPdoGetData(ubNetV, uwPdoNumV, ePDO_DIR_RCV, &aubPdoDataT[0]);
-   printf("                ");
-   printf("PDO received - data %02Xh \n", aubPdoDataT[0]);
 }
 
 
@@ -268,7 +269,8 @@ void ComPdoEventReceive(uint8_t ubNetV, uint16_t uwPdoNumV)
 // ComPdoEventTimeout()                                                       //
 // ComPdoEventTimeout                                                         //
 //----------------------------------------------------------------------------//
-void ComPdoEventTimeout(uint8_t ubNetV, uint16_t uwPdoV)
+void ComPdoEventTimeout(uint8_t  __attribute__((unused)) ubNetV,
+                        uint16_t __attribute__((unused)) uwPdoV)
 {
 
 }
@@ -278,9 +280,9 @@ void ComPdoEventTimeout(uint8_t ubNetV, uint16_t uwPdoV)
 // ComSdoSrvBlkUpObjectSize()                                                 //
 // Function handler for SDO server block transfer                             //
 //----------------------------------------------------------------------------//
-uint32_t ComSdoSrvBlkUpObjectSize(uint8_t __attribute__((unused)) ubNetV,
+uint32_t ComSdoSrvBlkUpObjectSize(uint8_t  __attribute__((unused)) ubNetV,
                                   uint16_t __attribute__((unused)) uwIndexV,
-                                  uint8_t __attribute__((unused)) ubSubIndexV)
+                                  uint8_t  __attribute__((unused)) ubSubIndexV)
 {
    uint32_t ulObjSizeT = 0;
 
@@ -293,9 +295,11 @@ uint32_t ComSdoSrvBlkUpObjectSize(uint8_t __attribute__((unused)) ubNetV,
 // ComSdoEventProgress()                                                      //
 // Function handler for SDO progress                                          //
 //----------------------------------------------------------------------------//
-void  ComSdoEventProgress(uint8_t ubNetV, uint8_t ubNodeIdV,
-                          uint16_t uwIndexV, uint8_t ubSubIndexV,
-                          uint32_t ulByteCntV)
+void  ComSdoEventProgress(uint8_t  __attribute__((unused)) ubNetV,
+                          uint8_t  __attribute__((unused)) ubNodeIdV,
+                          uint16_t __attribute__((unused)) uwIndexV,
+                          uint8_t  __attribute__((unused)) ubSubIndexV,
+                          uint32_t __attribute__((unused)) ulByteCntV)
 {
 
 }
@@ -305,10 +309,11 @@ void  ComSdoEventProgress(uint8_t ubNetV, uint8_t ubNodeIdV,
 // ComSdoEventTimeout()                                                       //
 // Function handler for SDO timeout                                           //
 //----------------------------------------------------------------------------//
-void  ComSdoEventTimeout(uint8_t ubNetV, uint8_t ubNodeIdV,
+void  ComSdoEventTimeout(uint8_t __attribute__((unused)) ubNetV,
+                         uint8_t ubNodeIdV,
                          uint16_t uwIndexV, uint8_t ubSubIndexV)
 {
-
+   printf("SDO timeout: NID %d - object %04Xh:%02Xh\n", ubNodeIdV, uwIndexV, ubSubIndexV);
 }
 
 
@@ -318,18 +323,37 @@ void  ComSdoEventTimeout(uint8_t ubNetV, uint8_t ubNodeIdV,
 //----------------------------------------------------------------------------//
 void ComSdoEventObjectReady(uint8_t ubNetV, uint8_t ubNodeIdV,
                             CoObject_ts * ptsCoObjV,
-                            uint32_t * pulAbortV)
+                            uint32_t  __attribute__((unused)) * pulAbortV)
 {
+   uint16_t uwHeartbeatTimeT = 50;    // heartbeat time in ms
 
-   //----------------------------------------------------------------
-   // configure default PDOs
-   //
-   ComDemoSetupPdoConfiguration(ubNetV, ubNodeIdV);
+   switch (ptsCoObjV->ubMarker)
+   {
+      case eCOM_SDO_MARKER_NODE_GET_INFO:
+         ComDemoShowDeviceInfo(ubNetV, ubNodeIdV);
+         ComNodeSetHbProdTime(ubNetV,  ubNodeIdV, uwHeartbeatTimeT);
+         break;
 
-   //----------------------------------------------------------------
-   // set node to operational
-   //
-   ComNmtSetNodeState(ubNetV, ubNodeIdV, eCOM_NMT_STATE_OPERATIONAL);
+      case eCOM_SDO_MARKER_NODE_SET_HEARTBEAT:
+         ComNmtSetHbConsTime(ubNetV, ubNodeIdV, uwHeartbeatTimeT * 4);
+         ComDemoSetupEmcyConfiguration(ubNetV, ubNodeIdV);
+
+         //----------------------------------------------------------------
+         // configure default PDOs
+         //
+         ComDemoSetupPdoConfiguration(ubNetV, ubNodeIdV);
+
+         //----------------------------------------------------------------
+         // set node to operational
+         //
+         ComNmtSetNodeState(ubNetV, ubNodeIdV, eCOM_NMT_STATE_OPERATIONAL);
+         break;
+
+      default:
+
+         break;
+   }
+
 }
 
 

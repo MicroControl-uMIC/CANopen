@@ -61,6 +61,7 @@
 static uint32_t      ulCounterOneSecondS = 0;
 static uint8_t       ubProgRunS;
 static ComNode_ts    atsComNodeS[126];
+static uint8_t       aubDeviceScanS[126];
 
 //-------------------------------------------------------------------
 // configuration objects
@@ -76,10 +77,21 @@ static uint8_t       ubIdx5FF5_S;
 \*----------------------------------------------------------------------------*/
 
 enum ComDemoNodeCmd_e {
-   eDEMO_NODE_CMD_WRITE_CONFIG = 0x01
-
+   eDEMO_NODE_CMD_READ_CONFIG  = 0x01,
+   eDEMO_NODE_CMD_WRITE_CONFIG
 };
 
+enum ComDemoNodeScan_e {
+   eDEMO_NODE_SCAN_EMPTY = 0x00,
+   eDEMO_NODE_SCAN_QUEUE,
+   eDEMO_NODE_SCAN_RUN,
+   eDEMO_NODE_SCAN_DONE
+};
+
+
+void         ComDemoAppProcess(void);
+ComStatus_tv ComDemoReadModuleConfiguration(uint8_t ubNetV, uint8_t ubNodeIdV);
+void         ComDemoShowDeviceInfo(uint8_t ubNetV, uint8_t ubNodeIdV);
 
 //----------------------------------------------------------------------------//
 // sig_handler_time()                                                         //
@@ -99,6 +111,7 @@ void sig_handler_time(int slSignalV)
          ulCounterTenMillisecondsS = 0;
       }
       ComMgrTimerEvent();
+      ComDemoAppProcess();
    }
 }
 
@@ -145,6 +158,10 @@ void init_signal_handler(void)
 }
 
 
+void ComDemoAddDevice(uint8_t  __attribute__((unused)) ubNetV, uint8_t ubNodeIdV)
+{
+   aubDeviceScanS[ubNodeIdV - 1] = eDEMO_NODE_SCAN_QUEUE;
+}
 
 //----------------------------------------------------------------------------//
 // ComDemoAppInit()                                                           //
@@ -161,6 +178,7 @@ void ComDemoAppInit(uint8_t ubNetV)
    {
       ComNodeSetDefault(&atsComNodeS[ubCntT - 1]);
       ComMgrNodeAdd(ubNetV, ubCntT, &atsComNodeS[ubCntT - 1]);
+      aubDeviceScanS[ubCntT - 1] = eDEMO_NODE_SCAN_EMPTY;
    }
 
    //----------------------------------------------------------------
@@ -174,6 +192,7 @@ void ComDemoAppInit(uint8_t ubNetV)
    // for node-ID 127 (0x7F)
    //
    ulIdx1016_S = 0x007F09C4;
+
 
    //----------------------------------------------------------------
    // object 1016h:01h
@@ -198,6 +217,99 @@ void ComDemoAppInit(uint8_t ubNetV)
    atsCoObjectS[1].ulDataSize = 1;
    atsCoObjectS[1].pvdData    = &(ubIdx5FF5_S);
 
+}
+
+
+void ComDemoAppProcess(void)
+{
+   uint8_t ubScanInProgressT = 0;
+
+   //----------------------------------------------------------------
+   // add structures for node-ID 1 to node-ID 126
+   //
+   for(uint8_t ubCntT = 0; ubCntT < 126; ubCntT++)
+   {
+      if (aubDeviceScanS[ubCntT] == eDEMO_NODE_SCAN_RUN)
+      {
+         ubScanInProgressT = 1;
+         break;
+      }
+   }
+
+   //----------------------------------------------------------------
+   // add structures for node-ID 1 to node-ID 126
+   //
+   if (ubScanInProgressT == 0)
+   {
+      for(uint8_t ubCntT = 0; ubCntT < 126; ubCntT++)
+      {
+         if (aubDeviceScanS[ubCntT] == eDEMO_NODE_SCAN_QUEUE)
+         {
+            ComDemoReadModuleConfiguration(eCOM_NET_1, ubCntT +1);
+            aubDeviceScanS[ubCntT] = eDEMO_NODE_SCAN_RUN;
+            break;
+         }
+      }
+   }
+
+}
+
+
+//----------------------------------------------------------------------------//
+// ComDemoShowDeviceInfo()                                                    //
+// print some information about the CANopen device                            //
+//----------------------------------------------------------------------------//
+void ComDemoShowDeviceInfo(uint8_t __attribute__((unused)) ubNetV, uint8_t ubNodeIdV)
+{
+   printf("                ");
+   uint32_t ulProfileT = atsComNodeS[ubNodeIdV - 1].ulIdx1000_DT;
+   ulProfileT = ulProfileT & 0x0000FFFF;  // mask the profile
+   printf("Device profile  : %03d\n", ulProfileT);
+
+   printf("                ");
+   printf("Error code      : %02d\n", atsComNodeS[ubNodeIdV - 1].ubIdx1001_ER);
+
+   printf("                ");
+   printf("Vendor ID       : %d\n"  , atsComNodeS[ubNodeIdV - 1].ulIdx1018_VI);
+
+   printf("                ");
+   printf("Product code    : %d\n"  , atsComNodeS[ubNodeIdV - 1].ulIdx1018_PC);
+
+   printf("                ");
+   printf("Revision number : %d\n"  , atsComNodeS[ubNodeIdV - 1].ulIdx1018_RN);
+
+   printf("                ");
+   printf("Serial number   : %d\n"  , atsComNodeS[ubNodeIdV - 1].ulIdx1018_SN);
+
+   printf("                ");
+   printf("Device name     : %s\n"  , atsComNodeS[ubNodeIdV - 1].aubIdx1008_DN);
+
+}
+
+//----------------------------------------------------------------------------//
+// ComDemoReadModuleConfiguration()                                           //
+//                                                                            //
+//----------------------------------------------------------------------------//
+ComStatus_tv ComDemoReadModuleConfiguration(uint8_t ubNetV, uint8_t ubNodeIdV)
+{
+   uint8_t        ubSdoT;     // SDO client
+
+   printf("                ");
+   printf("Read module configuration ...\n");
+
+   //----------------------------------------------------------------
+   // get and check SDO client index
+   //
+   ubSdoT = ComSdoGetClient(ubNetV);
+   if(ubSdoT >= COM_SDO_CLIENT_MAX)
+   {
+      return(-eCOM_ERR_SDO_CLIENT_VALUE);
+   }
+   ComSdoSetTimeout(ubNetV, ubSdoT, 10000);
+
+   ComNodeGetInfo(ubNetV, ubNodeIdV);
+
+   return(eCOM_ERR_OK);
 }
 
 
@@ -236,6 +348,20 @@ ComStatus_tv ComDemoWriteModuleConfiguration(uint8_t ubNetV, uint8_t ubNodeIdV)
 }
 
 //----------------------------------------------------------------------------//
+// ComDemoSetupEmcyConfiguration()                                            //
+//                                                                            //
+//----------------------------------------------------------------------------//
+ComStatus_tv ComDemoSetupEmcyConfiguration(uint8_t ubNetV, uint8_t ubNodeIdV)
+{
+   printf("                ");
+   printf("Setup EMCY consumer \n");
+
+   ComEmcyConsSetId(ubNetV,  ubNodeIdV, 0x80 +  ubNodeIdV);
+   ComEmcyConsEnable(ubNetV, ubNodeIdV, 1);
+   return(eCOM_ERR_OK);
+}
+
+//----------------------------------------------------------------------------//
 // ComDemoSetupPdoConfiguration()                                             //
 //                                                                            //
 //----------------------------------------------------------------------------//
@@ -251,14 +377,16 @@ ComStatus_tv ComDemoSetupPdoConfiguration(uint8_t ubNetV, uint8_t ubNodeIdV)
    ComPdoConfig(ubNetV, ubNodeIdV, ePDO_DIR_TRM, 0x0200 + ubNodeIdV, 1, ePDO_TYPE_EVENT_PROFILE, 0);
    ComPdoEnable(ubNetV, ubNodeIdV, ePDO_DIR_TRM, 1);
 
+   aubDeviceScanS[ubNodeIdV - 1] = eDEMO_NODE_SCAN_DONE;
    return(eCOM_ERR_OK);
 }
+
 
 //----------------------------------------------------------------------------//
 // main()                                                                     //
 //                                                                            //
 //----------------------------------------------------------------------------//
-int main(int argc, char *argv[])
+int main(int __attribute__((unused)) argc, char __attribute__((unused)) *argv[])
 {
    uint32_t ulTickOneSecondT = 0;
    ubProgRunS = 1;
@@ -280,12 +408,19 @@ int main(int argc, char *argv[])
    //
    init_signal_handler();
 
+   //----------------------------------------------------------------
+   // The function ComMgrTimerEvent() is called every 10 ms inside
+   // sig_handler_time(). We tell the CANopen master stack about
+   // this update period here in order to work with correkt timer
+   // ticks inside the stack. Please note that the parameter defines
+   // the time in micro-seconds.
+   //
    ComTmrSetPeriod(10000);
 
    //----------------------------------------------------------------
    // Initialise the CANopen master stack
    // The bitrate value is a dummy here, since the bitrate is
-   // set via the socketcan configuration file.
+   // set via the CANpie server configuration file.
    //
    ComMgrInit( eCP_CHANNEL_1, eCOM_NET_1, eCP_BITRATE_500K,
                127, eCOM_MODE_NMT_MASTER);
