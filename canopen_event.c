@@ -52,7 +52,10 @@
 **                                                                            **
 \*----------------------------------------------------------------------------*/
 
-
+enum ComDemoNodeCmd_e {
+   eDEMO_NODE_CMD_READ_CONFIG  = 0x01,
+   eDEMO_NODE_CMD_WRITE_CONFIG
+};
 
 /*----------------------------------------------------------------------------*\
 ** Functions                                                                  **
@@ -60,10 +63,12 @@
 \*----------------------------------------------------------------------------*/
 
 extern void         ComDemoAddDevice(uint8_t ubNetV, uint8_t ubNodeIdV);
+extern void 		ComDemoRemoveDevice(uint8_t ubNetV, uint8_t ubNodeIdV);
 extern void         ComDemoShowDeviceInfo(uint8_t ubNetV, uint8_t ubNodeIdV);
 extern ComStatus_tv ComDemoSetupEmcyConfiguration(uint8_t ubNetV, uint8_t ubNodeIdV);
 extern ComStatus_tv ComDemoSetupPdoConfiguration(uint8_t ubNetV, uint8_t ubNodeIdV);
 extern ComStatus_tv ComDemoWriteModuleConfiguration(uint8_t ubNetV, uint8_t ubNodeIdV);
+
 
 //----------------------------------------------------------------------------//
 // ComEmcyConsEventReceive()                                                  //
@@ -113,6 +118,7 @@ void ComMgrEventBus(uint8_t ubNetV, CpState_ts * ptsBusStateV)
             //---------------------------------------------
             // handle bus-off condition
             //
+        	ComNmtSetNodeState(ubNetV, ubNodeIdV, eCOM_NMT_STATE_RESET_COM);
          }
          break;
 
@@ -158,7 +164,14 @@ void ComNmtEventActiveMaster( uint8_t __attribute__((unused)) ubNetV,
 //----------------------------------------------------------------------------//
 void ComNmtEventHeartbeat(uint8_t ubNetV, uint8_t ubNodeIdV)
 {
+   //Stop Heartbeat consumer for Node
+   ComNmtSetHbConsTime(ubNetV, ubNodeIdV, 0);
+
    printf("can%d: NID %03d - No heartbeat received\n", ubNetV, ubNodeIdV);
+
+   //delete node from structure and send reset-node
+   ComDemoRemoveDevice(ubNetV, ubNodeIdV);
+   ComNmtSetNodeState(ubNetV, ubNodeIdV, eCOM_NMT_STATE_RESET_NODE);
 }
 
 
@@ -232,10 +245,8 @@ void ComNmtEventStateChange(uint8_t ubNetV, uint8_t ubNodeIdV,
         printf("can%d: NID %03d - received boot-up message\n",
               ubNetV, ubNodeIdV);
 
-        ComDemoAddDevice(ubNetV, ubNodeIdV);
-
+           ComDemoAddDevice(ubNetV, ubNodeIdV);
         break;
-
       case eCOM_NMT_STATE_PREOPERATIONAL:
         printf("can%d: NID %03d - switched to pre-operational state\n",
               ubNetV, ubNodeIdV);
@@ -243,6 +254,11 @@ void ComNmtEventStateChange(uint8_t ubNetV, uint8_t ubNodeIdV,
 
       case eCOM_NMT_STATE_OPERATIONAL:
         printf("can%d: NID %03d - switched to operational state\n",
+              ubNetV, ubNodeIdV);
+        break;
+
+      case eCOM_NMT_STATE_STOPPED:
+        printf("can%d: NID %03d - switched to stopped state\n",
               ubNetV, ubNodeIdV);
         break;
 
@@ -259,9 +275,31 @@ void ComNmtEventStateChange(uint8_t ubNetV, uint8_t ubNodeIdV,
 //----------------------------------------------------------------------------//
 void ComPdoEventReceive(uint8_t ubNetV, uint16_t uwPdoNumV)
 {
-   uint8_t  aubPdoDataT[8];
+   static uint8_t  aubDataT[8];
 
-   ComPdoGetData(ubNetV, uwPdoNumV, ePDO_DIR_RCV, &aubPdoDataT[0]);
+   //----------------------------------------------------------------
+   // read PDO data
+   //
+   ComPdoGetData(ubNetV, uwPdoNumV, ePDO_DIR_RCV, &aubDataT[0]);
+
+   if (uwPdoNumV == 6)
+   {
+      aubDataT[0] = aubDataT[0] + 1;
+   }
+   else
+   {
+      //----------------------------------------------------------------
+      // mirror data to PDO 1
+      //
+      if (aubDataT[0] == 0)
+      {
+         aubDataT[0] = 1;
+      }
+      else
+      {
+         aubDataT[0] = aubDataT[0] << 1;
+      }
+   }
 }
 
 
@@ -325,17 +363,24 @@ void ComSdoEventObjectReady(uint8_t ubNetV, uint8_t ubNodeIdV,
                             CoObject_ts * ptsCoObjV,
                             uint32_t  __attribute__((unused)) * pulAbortV)
 {
-   uint16_t uwHeartbeatTimeT = 50;    // heartbeat time in ms
+   uint16_t uwHeartbeatTimeT = 500;    // heartbeat time in ms
 
    switch (ptsCoObjV->ubMarker)
    {
-      case eCOM_SDO_MARKER_NODE_GET_INFO:
-         ComDemoShowDeviceInfo(ubNetV, ubNodeIdV);
+      case eDEMO_NODE_CMD_WRITE_CONFIG:
          ComNodeSetHbProdTime(ubNetV,  ubNodeIdV, uwHeartbeatTimeT);
          break;
 
+      case eCOM_SDO_MARKER_NODE_GET_INFO:
+         ComDemoShowDeviceInfo(ubNetV, ubNodeIdV);
+         if (ComDemoWriteModuleConfiguration(ubNetV, ubNodeIdV) < 0)
+         {
+            ComNodeSetHbProdTime(ubNetV,  ubNodeIdV, uwHeartbeatTimeT);
+         }
+         break;
+
       case eCOM_SDO_MARKER_NODE_SET_HEARTBEAT:
-         ComNmtSetHbConsTime(ubNetV, ubNodeIdV, uwHeartbeatTimeT * 4);
+         ComNmtSetHbConsTime(ubNetV, ubNodeIdV, uwHeartbeatTimeT * 3);
          ComDemoSetupEmcyConfiguration(ubNetV, ubNodeIdV);
 
          //----------------------------------------------------------------
