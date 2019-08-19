@@ -56,13 +56,15 @@
 #define  COM_NET		eCOM_NET_1
 #define  COM_CHANNEL    eCP_CHANNEL_1
 
+#define  COM_PDO_MAX    512
+
 static uint32_t      ulCounterOneSecondS = 0;
 static uint8_t       ubProgRunS;
 static ComNode_ts    atsComNodeS[126];
 static uint8_t       aubDeviceScanS[126];
-static uint8_t 		 aubPdoDoNodeId[2];
+static uint16_t      auwPdoNumDigOutS[126];
 static uint8_t       aubDataS[8];
-static uint8_t 		 ubPdoRcvCntS;
+static uint8_t 		ubPdoRcvCntS;
 
 
 //-------------------------------------------------------------------
@@ -194,10 +196,9 @@ void ComDemoAppInit(uint8_t ubNetV)
     	ComNodeSetDefault(&atsComNodeS[ubCntT - 1]);
         ComMgrNodeAdd(ubNetV, ubCntT, &atsComNodeS[ubCntT - 1]);
         aubDeviceScanS[ubCntT - 1] = eDEMO_NODE_SCAN_EMPTY;
+        auwPdoNumDigOutS[ubCntT - 1] = COM_PDO_MAX;
     }
 
-    aubPdoDoNodeId[0] = 0;
-	aubPdoDoNodeId[1] = 0;
    //----------------------------------------------------------------
    // port direction: 0 .. 7 outputs
    //
@@ -222,7 +223,7 @@ void ComDemoAppProcess(void)
    //----------------------------------------------------------------
    // add structures for node-ID 1 to node-ID 126
    //
-   for(uint8_t ubCntT = 0; ubCntT < 126; ubCntT++)
+   for (uint8_t ubCntT = 0; ubCntT < 126; ubCntT++)
    {
       if (aubDeviceScanS[ubCntT] == eDEMO_NODE_SCAN_RUN)
       {
@@ -253,16 +254,14 @@ void ComDemoAppProcess(void)
 	   //Send PDO's 50 * 10ms = 500ms
        if(ubPdoRcvCntS == 50)
        {
-		   if(aubPdoDoNodeId[0] > 0)
-		   {
-			   setRunningLightData((uint16_t)aubPdoDoNodeId[1]);
-			   ComPdoSendAsync(COM_NET,(uint16_t) aubPdoDoNodeId[0]);
-		   }
-		   if(aubPdoDoNodeId[1] > 0)
-		   {
-			   setRunningLightData((uint16_t)aubPdoDoNodeId[1]);
-			   ComPdoSendAsync(COM_NET,(uint16_t) aubPdoDoNodeId[1]);
-		   }
+          for (uint8_t ubCntT = 0; ubCntT < 126; ubCntT++)
+          {
+             if (auwPdoNumDigOutS[ubCntT] < COM_PDO_MAX)
+             {
+                setRunningLightData(auwPdoNumDigOutS[ubCntT]);
+                ComPdoSendAsync(COM_NET, auwPdoNumDigOutS[ubCntT]);
+             }
+          }
 		   ubPdoRcvCntS = 0;
        }
        else
@@ -371,7 +370,6 @@ ComStatus_tv ComDemoWriteModuleConfiguration(uint8_t ubNetV, uint8_t ubNodeIdV)
                         &atsCoObjectS[0],
                         &ulObjCountS);
 
-      aubPdoDoNodeId[0] = ubNodeIdV;
    }
 
    else
@@ -409,16 +407,27 @@ ComStatus_tv ComDemoSetupPdoConfiguration(uint8_t ubNetV, uint8_t ubNodeIdV)
    ComPdoConfig(ubNetV, ubNodeIdV, ePDO_DIR_RCV, 0x0180 + ubNodeIdV, 1, ePDO_TYPE_EVENT_PROFILE, 0);
    ComPdoEnable(ubNetV, ubNodeIdV, ePDO_DIR_RCV, 1);
 
+   if (atsComNodeS[ubNodeIdV - 1].ulIdx1018_PC == 1286014)
+   {
+      ComPdoConfig(ubNetV, ubNodeIdV, ePDO_DIR_TRM, 0x0200 + ubNodeIdV, 1, ePDO_TYPE_EVENT_PROFILE, 0);
+
+      auwPdoNumDigOutS[ubNodeIdV - 1] = ubNodeIdV;
+   }
+
+   if (atsComNodeS[ubNodeIdV - 1].ulIdx1018_PC == 9918100)
+   {
+      ComPdoConfig(ubNetV, ubNodeIdV, ePDO_DIR_TRM, 0x0200 + ubNodeIdV, 2, ePDO_TYPE_EVENT_PROFILE, 0);
+
+      auwPdoNumDigOutS[ubNodeIdV - 1] = ubNodeIdV;
+   }
+
    if (atsComNodeS[ubNodeIdV - 1].ulIdx1018_PC == 9918200)
    {
       ComPdoConfig(ubNetV, ubNodeIdV, ePDO_DIR_TRM, 0x0200 + ubNodeIdV, 2, ePDO_TYPE_EVENT_PROFILE, 0);
 
-      aubPdoDoNodeId[1] = ubNodeIdV;
+      auwPdoNumDigOutS[ubNodeIdV - 1] = ubNodeIdV;
    }
-   else
-   {
-	   ComPdoConfig(ubNetV, ubNodeIdV, ePDO_DIR_TRM, 0x0200 + ubNodeIdV, 1, ePDO_TYPE_EVENT_PROFILE, 0);
-   }
+
    ComPdoEnable(ubNetV, ubNodeIdV, ePDO_DIR_TRM, 1);
 
    aubDeviceScanS[ubNodeIdV - 1] = eDEMO_NODE_SCAN_DONE;
