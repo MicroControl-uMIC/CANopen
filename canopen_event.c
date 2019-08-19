@@ -118,7 +118,6 @@ void ComMgrEventBus(uint8_t ubNetV, CpState_ts * ptsBusStateV)
             //---------------------------------------------
             // handle bus-off condition
             //
-        	ComNmtSetNodeState(ubNetV, ubNodeIdV, eCOM_NMT_STATE_RESET_COM);
          }
          break;
 
