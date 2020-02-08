@@ -45,7 +45,9 @@
 \*--------------------------------------------------------------------------------------------------------------------*/
 
 #include <QtCore/QObject>
+#include <QtCore/QSocketNotifier>
 #include <QtCore/QTimer>
+
 #include "canopen_master.h"
 
 //-----------------------------------------------------------------------------------------------------------
@@ -64,10 +66,35 @@ public:
 
    ~CoMasterDemo();
 
+   //----------------------------------------------------------------------------------------------
+   // Unix signal handlers
+   //
+   static void    signalHandlerHup(int32_t slUnusedV);
+   static void    signalHandlerInt(int32_t slUnusedV);
+   static void    signalHandlerTerm(int32_t slUnusedV);
+
    void           start();
 
    void           stop();
 
+public slots:
+
+
+   //----------------------------------------------------------------------------------------------
+   // handler for SIGHUB
+   //
+   void  onSigHup(void);
+
+   //----------------------------------------------------------------------------------------------
+   // handler for SIGINT
+   //
+   void  onSigInt(void);
+
+   //----------------------------------------------------------------------------------------------
+   // handler for SIGTERM
+   //
+   void  onSigTerm(void);
+   
 private slots:
 
    void           onEmcyConsEventReceive(uint8_t ubNetV, uint8_t ubNodeIdV);
@@ -109,7 +136,10 @@ private slots:
    void           onTimerEvent(void);
 
    void           runCmdParser(void);
-   
+
+signals:
+   void           finished();
+
 private:
 
    void           connectComEvents(void);
@@ -120,6 +150,16 @@ private:
 
    QTimer         clTimerP;         // cyclic event timer
       
+   //----------------------------------------------------------------------------------------------
+   // file descriptor and notifier for SIGHUP, SIGINT and SIGTERM
+   //
+   static int32_t       aslSigHupFdP[2];
+   static int32_t       aslSigIntFdP[2];
+   static int32_t       aslSigTermFdP[2];
+
+   QSocketNotifier *    pclSigHupP;
+   QSocketNotifier *    pclSigIntP;
+   QSocketNotifier *    pclSigTermP;
 };
 
 

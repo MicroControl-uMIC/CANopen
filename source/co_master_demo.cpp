@@ -41,10 +41,13 @@
 #include <QtCore/QCommandLineParser>
 #include <QtCore/QDebug>
 
-#include "canopen_master.h"
 #include "qco_event.hpp"
 #include "co_master_demo.hpp"
 
+#include <signal.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <unistd.h>
 
 /*--------------------------------------------------------------------------------------------------------------------*\
 ** Definitions                                                                                                        **
@@ -67,21 +70,35 @@
 #define  VERSION_BUILD                       0
 #endif
 
-//----------------------------------------------------------------------------//
-// ComMgrUserInit()                                                           //
-//                                                                            //
-//----------------------------------------------------------------------------//
+
+/*--------------------------------------------------------------------------------------------------------------------*\
+** Internal functions                                                                                                 **
+**                                                                                                                    **
+\*--------------------------------------------------------------------------------------------------------------------*/
+
+static int   setup_signal_handler(void);
+
+
+/*--------------------------------------------------------------------------------------------------------------------*\
+** Static member variables                                                                                            **
+**                                                                                                                    **
+\*--------------------------------------------------------------------------------------------------------------------*/
+int32_t  CoMasterDemo::aslSigHupFdP[]  = {0, 0};
+int32_t  CoMasterDemo::aslSigIntFdP[]  = {0, 0};
+int32_t  CoMasterDemo::aslSigTermFdP[] = {0, 0};
+
+//--------------------------------------------------------------------------------------------------------------------//
+// ComMgrUserInit()                                                                                                   //
+//                                                                                                                    //
+//--------------------------------------------------------------------------------------------------------------------//
 ComStatus_tv ComMgrUserInit(uint8_t ubNetV)
 {
-   if (ubNetV == eCOM_NET_1)
-   {
-
-   }
-
+   Q_UNUSED(ubNetV);
 
 
    return (eCOM_ERR_OK);
 }
+
 
 
 //--------------------------------------------------------------------------------------------------------------------//
@@ -91,7 +108,7 @@ ComStatus_tv ComMgrUserInit(uint8_t ubNetV)
 int main(int argc, char *argv[])
 {
    QCoreApplication clAppT(argc, argv);
-   QCoreApplication::setApplicationName("can-dump");
+   QCoreApplication::setApplicationName("canopen-demo");
    
    //---------------------------------------------------------------------------------------------------
    // get application version 
@@ -112,16 +129,11 @@ int main(int argc, char *argv[])
 
    
    //---------------------------------------------------------------------------------------------------
-   // connect the signals
+   // connect the signal between application and main class for quit
    //
-   /*
-   QObject::connect(&clMainT, SIGNAL(finished()),
-                    &clAppT,  SLOT(quit()));
+   QObject::connect(&clMainT, &CoMasterDemo::finished,         &clAppT,  &QCoreApplication::quit);
    
-   QObject::connect(&clAppT, SIGNAL(aboutToQuit()),
-                    &clMainT, SLOT(aboutToQuitApp()));
-*/
-   
+
    //---------------------------------------------------------------------------------------------------
    // This code will start the messaging engine in QT and in 10 ms it will start the execution of the
    // clMainT.runCmdParser() routine.
@@ -150,20 +162,35 @@ CoMasterDemo::CoMasterDemo()
    //---------------------------------------------------------------------------------------------------
    // connect the cyclic timer to the event handler
    //
-   connect(&clTimerP, SIGNAL(timeout()), this, SLOT(onTimerEvent()));
+   connect(&clTimerP, &QTimer::timeout, this, &CoMasterDemo::onTimerEvent);
+
 
    //---------------------------------------------------------------------------------------------------
-   // Print application information
+   // Initialisation of socket handler for Linux
    //
-   printf("\n\n");
-   printf("###############################################################################\n");
-   printf("# uMIC.200 CANopen Master Example                                             #\n");
-   printf("###############################################################################\n");
-   printf("\n");
-   printf("Using library: %s\n", ComMgrGetVersionString(eCOM_VERSION_STACK));
-   printf("Use CTRL-C to quit this demo.\n");
-   printf("\n");
+   if (::socketpair(AF_UNIX, SOCK_STREAM, 0, aslSigHupFdP) > 0)
+   {
+      qFatal("Couldn't create HUP socketpair");
+   }
 
+   if (::socketpair(AF_UNIX, SOCK_STREAM, 0, aslSigIntFdP) > 0)
+   {
+      qFatal("Couldn't create INT socketpair");
+   }
+
+   if (::socketpair(AF_UNIX, SOCK_STREAM, 0, aslSigTermFdP) > 0)
+   {
+      qFatal("Couldn't create TERM socketpair");
+   }
+
+   pclSigHupP = new QSocketNotifier(aslSigHupFdP[1], QSocketNotifier::Read, this);
+   connect(pclSigHupP, &QSocketNotifier::activated, this, &CoMasterDemo::onSigHup);
+
+   pclSigIntP = new QSocketNotifier(aslSigIntFdP[1], QSocketNotifier::Read, this);
+   connect(pclSigIntP, &QSocketNotifier::activated, this, &CoMasterDemo::onSigInt);
+
+   pclSigTermP = new QSocketNotifier(aslSigTermFdP[1], QSocketNotifier::Read, this);
+   connect(pclSigTermP, &QSocketNotifier::activated, this, &CoMasterDemo::onSigTerm);
 
 }
 
@@ -402,7 +429,95 @@ void  CoMasterDemo::onSdoEventTimeout(uint8_t ubNetV, uint8_t ubNodeIdV, uint16_
 
 
 //--------------------------------------------------------------------------------------------------------------------//
-// CoMasterDemo::onSdoEventTimeout()                                                                                  //
+// CoMasterDemo::onSigHup()                                                                                           //
+// handle the SIGHUP signal                                                                                           //
+//--------------------------------------------------------------------------------------------------------------------//
+void CoMasterDemo::onSigHup(void)
+{
+   if (pclSigHupP != nullptr)
+   {
+      pclSigHupP->setEnabled(false);
+
+      char chValuesT;
+      ssize_t tvSizeT = ::read(aslSigHupFdP[1], &chValuesT, sizeof(chValuesT));
+
+      if (tvSizeT > 0)
+      {
+
+         //-------------------------------------------------------------------------------------------
+         // stop the demo
+         //
+         stop();
+
+      }
+
+      pclSigHupP->setEnabled(true);
+   }
+}
+
+
+//--------------------------------------------------------------------------------------------------------------------//
+// CoMasterDemo::onSigInt()                                                                                           //
+// handle the SIGINT signal                                                                                           //
+//--------------------------------------------------------------------------------------------------------------------//
+void CoMasterDemo::onSigInt(void)
+{
+
+   if (pclSigIntP != nullptr)
+   {
+      pclSigIntP->setEnabled(false);
+
+      char chValuesT;
+      ssize_t tvSizeT = ::read(aslSigIntFdP[1], &chValuesT, sizeof(chValuesT));
+
+      if (tvSizeT > 0)
+      {
+         //-------------------------------------------------------------------------------------------
+         // stop the demo
+         //
+         stop();
+      }
+
+      pclSigIntP->setEnabled(true);
+   }
+
+
+}
+
+
+//--------------------------------------------------------------------------------------------------------------------//
+// CoMasterDemo::onSigTerm()                                                                                          //
+// handle the SIGTERM signal                                                                                          //
+//--------------------------------------------------------------------------------------------------------------------//
+void CoMasterDemo::onSigTerm(void)
+{
+
+   if (pclSigTermP != nullptr)
+   {
+      pclSigTermP->setEnabled(false);
+
+      #if defined(Q_OS_UNIX)
+      char chValuesT;
+      ssize_t tvSizeT = ::read(aslSigTermFdP[1], &chValuesT, sizeof(chValuesT));
+
+      if (tvSizeT > 0)
+      {
+         //-------------------------------------------------------------------------------------------
+         // stop the demo
+         //
+         stop();
+      }
+      #endif
+
+      pclSigTermP->setEnabled(true);
+   }
+
+
+}
+
+
+//--------------------------------------------------------------------------------------------------------------------//
+// CoMasterDemo::onTimerEvent()                                                                                       //
 //                                                                                                                    //
 //--------------------------------------------------------------------------------------------------------------------//
 void CoMasterDemo::onTimerEvent(void)
@@ -415,6 +530,11 @@ void CoMasterDemo::onTimerEvent(void)
 }
 
 
+
+//--------------------------------------------------------------------------------------------------------------------//
+// CoMasterDemo::runCmdParser()                                                                                       //
+//                                                                                                                    //
+//--------------------------------------------------------------------------------------------------------------------//
 void  CoMasterDemo::runCmdParser(void)
 {
    QCommandLineParser   clCmdParserT;
@@ -456,11 +576,105 @@ void  CoMasterDemo::runCmdParser(void)
    const QStringList clArgsT = clCmdParserT.positionalArguments();
    if (clArgsT.size() != 1) 
    {
-      fprintf(stderr, "%s\n", 
-              qPrintable(tr("Error: Must specify CAN interface.\n")));
+      fprintf(stdout, "%s\n", qPrintable(tr("Error: Must specify CAN interface.\n")));
       clCmdParserT.showHelp(0);
    }
-      start();
+
+   //---------------------------------------------------------------------------------------------------
+   // test format of argument <interface>
+   //
+   QString clInterfaceT = clArgsT.at(0);
+   if (!clInterfaceT.startsWith("can"))
+   {
+      fprintf(stderr, "%s %s\n", qPrintable(tr("Error: Unknown CAN interface ")), qPrintable(clInterfaceT));
+      clCmdParserT.showHelp(0);
+   }
+   
+   //---------------------------------------------------------------------------------------------------
+   // convert CAN channel to uint8_t value
+   //
+   QString clIfNumT = clInterfaceT.right(clInterfaceT.size() - 3);
+   bool    btConversionSuccessT;
+   int32_t slChannelT = clIfNumT.toInt(&btConversionSuccessT, 10);
+   if ((btConversionSuccessT == false) || (slChannelT == 0) )
+   {
+      fprintf(stderr, "%s \n\n", qPrintable(tr("Error: CAN interface out of range")));
+      clCmdParserT.showHelp(0);
+   }
+   
+   //---------------------------------------------------------------------------------------------------
+   // store CAN interface channel (CAN_Channel_e)
+   //
+   ubCanChannelP = (uint8_t) (slChannelT);
+
+
+   //---------------------------------------------------------------------------------------------------
+   // start demo
+   //
+   start();
+}
+
+
+
+//--------------------------------------------------------------------------------------------------------------------//
+// Comet::signalHandlerHup()                                                                                          //
+// handle SIGHUB                                                                                                      //
+//--------------------------------------------------------------------------------------------------------------------//
+void  CoMasterDemo::signalHandlerHup(int32_t slUnusedV)
+{
+   Q_UNUSED(slUnusedV);
+
+   fprintf(stdout, "Received a SIGHUP signal \n");
+   fflush(stdout);
+
+   char chValueT = 1;
+   ssize_t tvSizeT = ::write(aslSigHupFdP[0], &chValueT, sizeof(chValueT));
+   if (tvSizeT == 0)
+   {
+      // avoid compiler warning
+   }
+
+}
+
+
+//--------------------------------------------------------------------------------------------------------------------//
+// Comet::signalHandlerInt()                                                                                          //
+// write a value to the socket for SIGINT                                                                             //
+//--------------------------------------------------------------------------------------------------------------------//
+void  CoMasterDemo::signalHandlerInt(int32_t slUnusedV)
+{
+   Q_UNUSED(slUnusedV);
+   fprintf(stdout, "Received a SIGINT signal \n");
+   fflush(stdout);
+
+   char chValueT = 1;
+   ssize_t tvSizeT = ::write(aslSigIntFdP[0], &chValueT, sizeof(chValueT));
+   if (tvSizeT == 0)
+   {
+      // avoid compiler warning
+   }
+
+}
+
+
+//--------------------------------------------------------------------------------------------------------------------//
+// Comet::signalHandlerTerm()                                                                                         //
+// write a value to the socket for SIGTERM                                                                            //
+//--------------------------------------------------------------------------------------------------------------------//
+void  CoMasterDemo::signalHandlerTerm(int32_t slUnusedV)
+{
+   Q_UNUSED(slUnusedV);
+
+   fprintf(stdout, "Received a SIGTERM signal \n");
+   fflush(stdout);
+
+   char chValueT = 1;
+   ssize_t tvSizeT = ::write(aslSigTermFdP[0], &chValueT, sizeof(chValueT));
+   if (tvSizeT == 0)
+   {
+      // avoid compiler warning
+   }
+
 }
 
 
@@ -470,6 +684,18 @@ void  CoMasterDemo::runCmdParser(void)
 //--------------------------------------------------------------------------------------------------------------------//
 void  CoMasterDemo::start(void)
 {
+   //---------------------------------------------------------------------------------------------------
+   // Print application information
+   //
+   fprintf(stdout, "\n\n");
+   fprintf(stdout, "###############################################################################\n");
+   fprintf(stdout, "# uMIC.200 CANopen Master Demo                                                #\n");
+   fprintf(stdout, "###############################################################################\n");
+   fprintf(stdout, "\n");
+   fprintf(stdout, "Using library: %s\n", ComMgrGetVersionString(eCOM_VERSION_STACK));
+   fprintf(stdout, "Use CTRL-C to quit this demo.\n");
+   fprintf(stdout, "\n");
+
    //---------------------------------------------------------------------------------------------------
    // The function ComMgrNetTimerEvent() is called every 10 ms inside onTimerEvent(). We tell the 
    // CANopen master stack about this update period here in order to work with correkt timer
@@ -511,5 +737,57 @@ void  CoMasterDemo::start(void)
 //--------------------------------------------------------------------------------------------------------------------//   
 void CoMasterDemo::stop(void)
 {
+
+   emit finished();
+}
+
+
+//--------------------------------------------------------------------------------------------------------------------//
+// setup_signal_handler()                                                                                             //
+// setup handler for SIGHUP and SIGTERM                                                                               //
+//--------------------------------------------------------------------------------------------------------------------//
+static int setup_signal_handler(void)
+{
+
+   struct sigaction tsSigHupT, tsSigIntT, tsSigTermT;
+
+   //---------------------------------------------------------------------------------------------------
+   // setup handler for HUP
+   //
+   tsSigHupT.sa_handler = CoMasterDemo::signalHandlerHup;
+   sigemptyset(&tsSigHupT.sa_mask);
+   tsSigHupT.sa_flags = 0;
+   tsSigHupT.sa_flags |= SA_RESTART;
+
+   if (sigaction(SIGHUP, &tsSigHupT, 0))
+   {
+      return 1;
+   }
+
+   //---------------------------------------------------------------------------------------------------
+   // setup handler for INT
+   //
+   tsSigIntT.sa_handler = CoMasterDemo::signalHandlerInt;
+   sigemptyset(&tsSigIntT.sa_mask);
+   tsSigIntT.sa_flags |= SA_RESTART;
+
+   if (sigaction(SIGINT, &tsSigIntT, 0))
+   {
+      return 3;
+   }
+
+   //---------------------------------------------------------------------------------------------------
+   // setup handler for TERM
+   //
+   tsSigTermT.sa_handler = CoMasterDemo::signalHandlerTerm;
+   sigemptyset(&tsSigTermT.sa_mask);
+   tsSigTermT.sa_flags |= SA_RESTART;
+
+   if (sigaction(SIGTERM, &tsSigTermT, 0))
+   {
+      return 3;
+   }
+
+   return 0;
 
 }
