@@ -45,6 +45,7 @@
 \*--------------------------------------------------------------------------------------------------------------------*/
 
 #include <QtCore/QObject>
+#include <QtCore/QQueue>
 #include <QtCore/QSocketNotifier>
 #include <QtCore/QTimer>
 
@@ -94,7 +95,7 @@ public slots:
    // handler for SIGTERM
    //
    void  onSigTerm(void);
-   
+
 private slots:
 
    void           onEmcyConsEventReceive(uint8_t ubNetV, uint8_t ubNodeIdV);
@@ -144,22 +145,44 @@ private:
 
    void           connectComEvents(void);
 
-   uint8_t        ubCanChannelP;
-   uint8_t        ubNetworkP;
-   uint8_t        ubMasterNodeIdP;
 
-   QTimer         clTimerP;         // cyclic event timer
+   uint8_t           ubCanChannelP;
+   uint8_t           ubNetworkP;
+   uint8_t           ubMasterNodeIdP;
+
+   //-----------------------------------------------------------------------------------------
+   // heartbeat producer time for CANopen Master
+   //
+   uint16_t          uwHeartbeatTimeP;
+
+   //-----------------------------------------------------------------------------------------
+   // SYNC producer time for CANopen Master
+   //
+   uint32_t          ulSyncTimeP;
+
+   //-----------------------------------------------------------------------------------------
+   // The device FIFO is used to store the node-IDs of devices which send a boot-up
+   // message. The FIFO is checked inside the onTimerEvent() handler and the scanDevice()
+   // method is called.
+   //
+   QQueue<uint8_t>   clDeviceFifoP;
+
+   bool              btSdoActiveP;
+
+   ComNode_ts        atsComNodeP[127];
+
+   QTimer            clTimerP;         // cyclic event timer
       
    //----------------------------------------------------------------------------------------------
    // file descriptor and notifier for SIGHUP, SIGINT and SIGTERM
    //
-   static int32_t       aslSigHupFdP[2];
-   static int32_t       aslSigIntFdP[2];
-   static int32_t       aslSigTermFdP[2];
+   static int32_t    aslSigHupFdP[2];
+   static int32_t    aslSigIntFdP[2];
+   static int32_t    aslSigTermFdP[2];
 
-   QSocketNotifier *    pclSigHupP;
-   QSocketNotifier *    pclSigIntP;
-   QSocketNotifier *    pclSigTermP;
+   QSocketNotifier * pclSigHupP;
+   QSocketNotifier * pclSigIntP;
+   QSocketNotifier * pclSigTermP;
 };
 
 
