@@ -1,6 +1,6 @@
 # **CANopen Master** Example
 
-This code provides an exmaple for the CANopen Master library for the automation controller µMIC.200. 
+This code provides an example for the CANopen Master library. 
 It scans the network for CANopen slave devices and prints details on the console. The program has
 several options, the used CAN interface must be supplied to start the program.
 
