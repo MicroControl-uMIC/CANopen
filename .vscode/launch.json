@@ -10,7 +10,7 @@
             "request": "launch",
             "program": "${workspaceFolder}/build/canopen-demo",
             "miDebuggerPath": "/usr/bin/gdb-multiarch",
-            "miDebuggerServerAddress": "192.168.178.19:2345",
+            "miDebuggerServerAddress": "umic.200:2345",
             "args": [],
             "stopAtEntry": true,
             "cwd": "${workspaceRoot}",
